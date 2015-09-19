@@ -1,0 +1,145 @@
+#include <process/multitasking.h>
+
+proc *current_p;
+proc *new_p;
+proc *empty_p;
+proc *last_p;
+
+unsigned int kernel_stack_buttom;
+
+static q_t *ready_f = 0;
+static q_t *ready_l = 0;
+
+proc *task_create(entry_t entry,int priority){
+  unsigned int  *temp_stack;
+  temp_stack=malloc(16)+16;
+  *temp_stack--;
+  *temp_stack--=0x0202;
+  *temp_stack--=0x08;
+  *temp_stack--=(unsigned int)entry;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0;
+  *temp_stack--=0x10;
+  *temp_stack--=0x10;
+  *temp_stack--=0x10;
+  *temp_stack--=0x10;
+
+  proc *newproc;
+  newproc = malloc(sizeof(proc));
+
+  newproc->esp = (unsigned int) temp_stack;
+  newproc->ss = 0x10;
+  //newproc->kstack = (unsigned int)&kstacks[d][KSTACKTOP];
+  //newproc->ustack = (unsigned int)&stacks[d][USTACKTOP];
+  newproc->next = NULL;
+
+  last_p->next = newproc;
+  last_p = newproc;
+
+  return newproc;
+}
+
+
+void schedule() {
+
+  if ( current_p->timetorun<1 ) {
+    q_ready_add(current_p);
+    new_p = q_ready_getf();
+    new_p->timetorun = DEF_TIMESLICE;
+    convert();
+  }
+}
+
+
+void q_ready_add(proc *p)
+{
+  if (ready_l)
+  {
+    ready_l->proc = p;
+    ready_l->next = malloc(sizeof(q_t));
+    ready_l = ready_l->next;
+  } else {
+    ready_f = malloc(sizeof(q_t));
+    ready_f->next = malloc(sizeof(q_t));
+    ready_f->proc = p;
+    ready_l = ready_f->next;
+  }
+}
+
+
+q_t *q_ready_getf()
+{
+  q_t *ret;
+  ret = ready_f;
+  ready_f = ready_f->next;
+  return ret;
+}
+
+
+void timer_handler2 (struct registers *r) {
+  if(current_p->timetorun>0) {
+    current_p->timetorun--;
+  } else {
+    current_p->esp = r->esp;
+    current_p->ss = r->ss;
+    schedule();
+  }
+}
+
+
+void convert()
+{
+  __asm__ ("cli");
+    
+  __asm__ ("movl %%esp, %0;"
+	   :"=r"(current_p->esp)
+	   );
+  
+  __asm__ ("movl %%ss, %0;"
+	   :"=r"(current_p->ss)
+	   );
+
+  current_p = new_p;
+
+  __asm__ ("movl %0, %%esp;"
+	   :
+	   :"r" (current_p->esp)
+	   );
+
+  __asm__ ("movl %0, %%ss;"
+	   :
+	   :"r" (current_p->ss)
+	   );
+  
+  __asm__ ("sti");
+}
+
+void process_init()
+{
+  empty_p = task_create(idle,0);
+  q_ready_add(empty_p);
+
+  __asm__ ("movl %%esp,%0;"
+	   :"=r" ((unsigned int) kernel_stack_buttom)
+	   );
+
+  //  irq_install_handler(0,timer_handler2);
+}
+
+void idle()
+{
+  while (1)
+    printf("#");
+}
+
+void idle2()
+{
+  while (1)
+    printf("*");
+}
